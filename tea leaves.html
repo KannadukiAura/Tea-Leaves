@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>原料 在庫管理</title>
+  <style>
+    /* —— ベース —— */
+    :root { --bg:#0f1115; --card:#171923; --ink:#e8ebf1; --muted:#aab2c5; --accent:#7dcfff; --danger:#ff6b6b; --ok:#8be9a8; }
+    html,body { height:100%; }
+    body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; background:linear-gradient(180deg, #0e0f13, #12141b 20%, #0e0f13); color:var(--ink); }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 16px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin: 8px 0 12px; }
+    h1 { font-size: clamp(20px, 4.5vw, 28px); font-weight: 700; margin:0; letter-spacing: .03em; }
+    .sub { color: var(--muted); font-size: 12px; }
+
+    /* —— カード —— */
+    .card { background: var(--card); border: 1px solid #222433; border-radius: 14px; padding: 14px; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+    .grid { display:grid; gap:12px; }
+    @media (min-width: 720px){ .grid-2 { grid-template-columns: 1.2fr .8fr; } }
+
+    /* —— フォーム —— */
+    form { display:grid; grid-template-columns: 1fr; gap:10px; }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    label { font-size: 12px; color: var(--muted); }
+    input[type="text"], input[type="number"] { width:100%; box-sizing:border-box; border-radius:10px; background:#0d0f15; border:1px solid #272a3a; color:var(--ink); padding:12px 12px; font-size:16px; outline:none; }
+    input[type="number"]::-webkit-outer-spin-button, 
+    input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .btns { display:flex; gap:10px; flex-wrap:wrap; }
+    button, label.filelike { appearance:none; border:none; border-radius:10px; padding:12px 14px; font-size:15px; font-weight:600; letter-spacing:.02em; cursor:pointer; background:#1f2231; color:var(--ink); border:1px solid #2a2e42; }
+    button.primary { background: linear-gradient(180deg,#1b7fff,#1957ff); border-color:#1b57ff; }
+    button.ghost { background: transparent; }
+    button.ok { background: linear-gradient(180deg,#22b07d,#0b8e55); border-color:#0b8e55; }
+    button.danger { background: linear-gradient(180deg,#ea6363,#d14a4a); border-color:#d14a4a; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+
+    /* —— テーブル —— */
+    table { width:100%; border-collapse: collapse; }
+    thead th { text-align:left; font-size:12px; font-weight:700; color:var(--muted); padding:10px; border-bottom:1px solid #2a2d41; position:sticky; top:0; background:linear-gradient(180deg,#1a1c27,#161824); }
+    tbody td { padding:12px 10px; border-bottom:1px solid #202233; font-size:15px; vertical-align:middle; }
+    tbody tr:hover { background:#121424; }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .pill { font-size:12px; padding:4px 8px; border-radius:999px; border:1px solid #2a2e42; color:var(--muted); background:#10121a; }
+
+    .footerbar { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:10px; color:var(--muted); font-size:12px; }
+    .totals { display:flex; gap:12px; }
+
+    /* モバイルの押しやすさ */
+    .tap { min-height:44px; }
+    
+    /* ファイル入力を隠してラベルで見せる */
+    input[type=file]{ display:none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>原料 在庫管理</h1>
+        <div class="sub">Androidローカルで動作 / JSONエクスポート・インポート対応 / 自動ローカル保存 / 調整入力対応</div>
+      </div>
+      <div class="pill" id="status">未保存</div>
+    </header>
+
+    <div class="grid grid-2">
+      <!-- 入力フォーム -->
+      <section class="card">
+        <h2 style="margin:0 0 10px; font-size:18px;">入力</h2>
+        <form id="entryForm">
+          <div>
+            <label for="name">原料の名前</label>
+            <input id="name" name="name" type="text" inputmode="kana" placeholder="例：碾棒　5mm" required />
+          </div>
+          <div class="row">
+            <div>
+              <label for="palettes">パレット数</label>
+              <input id="palettes" name="palettes" type="number" inputmode="numeric" min="0" step="1" placeholder="0" required />
+            </div>
+            <div>
+              <label for="bags">袋の本数</label>
+              <input id="bags" name="bags" type="number" inputmode="numeric" min="0" step="1" placeholder="0" required />
+            </div>
+          </div>
+          <div class="btns">
+            <button class="primary tap" type="submit" id="submitBtn">追加 / 上書き</button>
+            <button class="ghost tap" type="button" id="resetBtn">フォームをクリア</button>
+          </div>
+          <div class="sub" style="margin-top:6px;">※同名の原料が存在する場合は「上書き」になります。編集は一覧の✏️からも可能。</div>
+      </form>
+      </section>
+
+      <!-- 操作エリア -->
+      <section class="card">
+        <h2 style="margin:0 0 10px; font-size:18px;">保存・読み込み</h2>
+        <div class="btns" style="margin-bottom:8px;">
+          <button class="ok tap" id="exportBtn" type="button">JSONに書き出す（保存）</button>
+
+          <label for="importFile" class="filelike tap">JSONを読み込む（復元）</label>
+          <input id="importFile" type="file" accept="application/json" />
+
+          <button class="danger tap" id="clearBtn" type="button">全て削除</button>
+        </div>
+        <div class="sub">・Androidのブラウザ（Chrome推奨）で使えます。<br>・データは自動で端末ローカル（localStorage）にも保存されます。<br>・バックアップ用途にJSONを書き出しておくと安心です。</div>
+      </section>
+    </div>
+
+    <!-- 一覧 -->
+    <section class="card" style="margin-top:12px;">
+      <h2 style="margin:0 0 10px; font-size:18px;">在庫一覧</h2>
+      <div class="footerbar">
+        <div class="totals" id="totals">合計：—</div>
+        <div class="sub" id="lastSaved">保存：—</div>
+      </div>
+      <div style="overflow:auto; margin-top:8px;">
+        <table id="table">
+          <thead>
+            <tr>
+              <th style="min-width:200px;">原料名</th>
+              <th>パレット</th>
+              <th>袋本数</th>
+              <th>更新</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr><td colspan="5" style="text-align:center; color:var(--muted);">データがありません。入力して追加してください。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="sub" style="margin:14px 0 24px; text-align:center;">© お茶在庫メモ（ローカル専用）</footer>
+  </div>
+
+  <script>
+  // —— 状態管理 ——
+  /** @typedef {{ id:string, name:string, palettes:number, bags:number, updatedAt:string }} Item */
+  /** @type {Item[]} */
+  let items = [];
+  const STORAGE_KEY = 'tea_inventory_v1';
+
+  // —— 要素参照 ——
+  const form = document.getElementById('entryForm');
+  const nameEl = document.getElementById('name');
+  const palettesEl = document.getElementById('palettes');
+  const bagsEl = document.getElementById('bags');
+  const submitBtn = document.getElementById('submitBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const exportBtn = document.getElementById('exportBtn');
+  const importFile = document.getElementById('importFile');
+  const clearBtn = document.getElementById('clearBtn');
+  const tbody = document.getElementById('tbody');
+  const statusPill = document.getElementById('status');
+  const totalsEl = document.getElementById('totals');
+  const lastSavedEl = document.getElementById('lastSaved');
+
+  // —— ユーティリティ ——
+  const nowISO = () => new Date().toISOString();
+  const fmtDate = (iso) => new Date(iso).toLocaleString();
+  const uid = () => Math.random().toString(36).slice(2,10);
+
+  function setDirty(saved){
+    if(saved){ statusPill.textContent = '保存済み'; statusPill.style.background = '#10351e'; statusPill.style.color = '#9de7b8'; }
+    else{ statusPill.textContent = '未保存'; statusPill.style.background = '#2a2030'; statusPill.style.color = '#ffd6f1'; }
+  }
+
+  function persist(){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    setDirty(true);
+    lastSavedEl.textContent = '保存：' + fmtDate(nowISO());
+  }
+
+  function loadFromLocal(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw){ items = JSON.parse(raw); }
+    }catch(e){ console.warn('localStorage読み込み失敗', e); items = []; }
+  }
+
+  function render(){
+    // ソート（名前昇順）
+    items.sort((a,b)=> a.name.localeCompare(b.name, 'ja'));
+
+    if(items.length === 0){
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--muted);">データがありません。入力して追加してください。</td></tr>';
+      totalsEl.textContent = '合計：—';
+      return;
+    }
+
+    tbody.innerHTML = items.map(it => `
+      <tr>
+        <td>${escapeHtml(it.name)}</td>
+        <td>${it.palettes}</td>
+        <td>${it.bags}</td>
+        <td><span class="sub">${escapeHtml(new Date(it.updatedAt).toLocaleString())}</span></td>
+        <td class="actions">
+          <button class="ghost tap" data-act="edit" data-id="${it.id}">✏️編集</button>
+          <button class="ghost tap" data-act="adj" data-id="${it.id}">⚖️調整</button>
+          <button class="danger tap" data-act="del" data-id="${it.id}">🗑削除</button>
+        </td>
+      </tr>
+    `).join('');
+
+    const totals = items.reduce((acc, it)=>({pal:acc.pal + Number(it.palettes||0), bag:acc.bag + Number(it.bags||0)}), {pal:0, bag:0});
+    totalsEl.textContent = `合計：パレット ${totals.pal} / 袋 ${totals.bag}`;
+  }
+
+  function escapeHtml(str){
+    return String(str).replace(/[&<>'"]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#39;','"':'&quot;'}[s]));
+  }
+
+  // —— 追加/更新 ——
+  form.addEventListener('submit', (e)=>{
+    e.preventDefault();
+    const name = nameEl.value.trim();
+    const palettes = Number(palettesEl.value || 0);
+    const bags = Number(bagsEl.value || 0);
+    if(!name) return;
+
+    // 既存チェック（同名を上書きにする）
+    const found = items.find(i => i.name === name);
+    if(found){
+      found.palettes = palettes;
+      found.bags = bags;
+      found.updatedAt = nowISO();
+    } else {
+      items.push({ id: uid(), name, palettes, bags, updatedAt: nowISO() });
+    }
+
+    setDirty(false);
+    render();
+    persist();
+    form.reset();
+    nameEl.focus();
+  });
+
+  resetBtn.addEventListener('click', ()=> form.reset());
+
+  // —— 編集/削除/調整（イベントデリゲート） ——
+  tbody.addEventListener('click', (e)=>{
+    const btn = e.target.closest('button');
+    if(!btn) return;
+    const id = btn.getAttribute('data-id');
+    const act = btn.getAttribute('data-act');
+    const idx = items.findIndex(i=> i.id === id);
+    if(idx === -1) return;
+
+    if(act === 'del'){
+      if(confirm('この原料を削除しますか？')){
+        items.splice(idx,1); render(); persist();
+      }
+    } else if(act === 'edit'){
+      const it = items[idx];
+      nameEl.value = it.name;
+      palettesEl.value = it.palettes;
+      bagsEl.value = it.bags;
+      nameEl.focus();
+    } else if(act === 'adj'){
+      const it = items[idx];
+      const input = prompt(`調整値を入力（例: "-1PL -16本" または "-1 -16"）\n現在: パレット ${it.palettes} / 袋 ${it.bags}`);
+      if(input == null) return;
+      try{
+        const d = parseDelta(input);
+        const np = it.palettes + d.pal;
+        const nb = it.bags + d.bag;
+        if(np < 0 || nb < 0){
+          if(!confirm(`結果がマイナスになります。適用しますか？\n→ パレット ${np} / 袋 ${nb}`)) return;
+        }
+        it.palettes = np;
+        it.bags = nb;
+        it.updatedAt = nowISO();
+        render();
+        persist();
+      }catch(err){
+        alert('うまく読めませんでした。例: "-1PL -16本" または "-1 -16" の形式で入力してください。');
+      }
+    }
+  });
+
+  // —— 文字列から調整値を読む ——
+  /** 例: "-1PL -16本", "-2 パレット +5", "-1 -16" */
+  function parseDelta(input){
+    const s = String(input || '').replace(/[\u3000\s]+/g,' ').trim();
+    if(!s) throw new Error('empty');
+    let pal = 0, bag = 0;
+    const re = /([+-]?\d+)\s*(pl|パレット|袋|本)?/gi;
+    const caps = [];
+    let m;
+    while((m = re.exec(s))){ caps.push(m); }
+    if(caps.length === 0) throw new Error('no number');
+    for(const c of caps){
+      const val = Number(c[1]);
+      const unit = (c[2] || '').toLowerCase();
+      if(unit === 'pl' || unit === 'パレット'){ pal += val; }
+      else if(unit === '袋' || unit === '本'){ bag += val; }
+      else {
+        // 単位なしは、未割当の順で パレット→袋 に割り当て
+        if(pal === 0) pal += val; else bag += val;
+      }
+    }
+    return { pal, bag };
+  }
+
+  // —— JSON書き出し ——
+  exportBtn.addEventListener('click', ()=>{
+    const payload = { version:1, exportedAt: nowISO(), items };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ymd = new Date().toISOString().slice(0,10).replaceAll('-','');
+    a.href = url;
+    a.download = `tea_inventory_${ymd}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  // —— JSON読み込み ——
+  importFile.addEventListener('change', async (e)=>{
+    const file = e.target.files?.[0];
+    if(!file) return;
+    try{
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if(!Array.isArray(data.items)) throw new Error('不正なファイル形式です（items配列が見つかりません）');
+      // 簡易バリデーション
+      const cleaned = data.items.map(x=>({
+        id: typeof x.id === 'string' ? x.id : uid(),
+        name: String(x.name ?? ''),
+        palettes: Number(x.palettes ?? 0),
+        bags: Number(x.bags ?? 0),
+        updatedAt: typeof x.updatedAt === 'string' ? x.updatedAt : nowISO(),
+      })).filter(x=> x.name.trim() !== '');
+      items = cleaned;
+      render();
+      persist();
+      importFile.value = '';
+      alert('読み込みました。');
+    }catch(err){
+      console.error(err); alert('読み込みに失敗しました。JSONファイルをご確認ください。');
+    }
+  });
+
+  // —— 全削除 ——
+  clearBtn.addEventListener('click', ()=>{
+    if(confirm('全ての在庫データを削除します。よろしいですか？')){
+      items = []; render(); persist();
+    }
+  });
+
+  // —— 初期化 ——
+  function init(){
+    loadFromLocal();
+    render();
+    setDirty(true);
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){ lastSavedEl.textContent = '保存：ローカルから復元済み'; }
+  }
+  init();
+  </script>
+</body>
+</html>
